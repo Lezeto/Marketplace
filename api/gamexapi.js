@@ -1,11 +1,11 @@
 // Serverless function handler for Vercel-like environment.
-// Actions: me, set-username, submit-score, leaderboard, get-profile, update-profile, list-messages, send-message
+// Actions: me, set-username, get-profile, update-profile, list-messages, send-message
 // Requires env vars:
 //  - SUPABASE_URL
 //  - SUPABASE_SERVICE_KEY (service role)
 //  - SUPABASE_ANON_KEY (for potential validation)
 // Database schema (SQL suggestions in README/instructions):
-//  profiles: id UUID (primary key references auth.users.id), username text unique, max_score int default 0, created_at timestamptz default now()
+//  profiles: id UUID (primary key references auth.users.id), username text unique, created_at timestamptz default now()
 // RLS enabled with policies to allow read leaderboard, and user to read/update own row.
 
 import { createClient } from '@supabase/supabase-js'
@@ -46,14 +46,10 @@ export default async function handler(req, res) {
   const { action } = body || {}
   try {
 		switch (action) {
-			case 'leaderboard':
-				return await leaderboard(res)
 			case 'me':
 				return await me(body, res)
 			case 'set-username':
 				return await setUsername(body, res)
-			case 'submit-score':
-				return await submitScore(body, res)
 			case 'get-profile':
 				return await getProfile(body, res)
 			case 'update-profile':
@@ -86,7 +82,7 @@ async function ensureProfile(userId) {
 	if (!data) {
 		const { error: insErr } = await adminClient.from('profiles').insert({ id: userId })
 		if (insErr) throw insErr
-		return { id: userId, max_score: 0 }
+		return { id: userId }
 	}
 	return data
 }
@@ -113,26 +109,7 @@ async function setUsername(body, res) {
 	res.json({ username: data.username })
 }
 
-async function submitScore(body, res) {
-	const { token, score } = body
-	if (!token) return res.status(401).json({ error: 'Missing token' })
-	if (typeof score !== 'number' || score < 0 || score > 10000) return res.status(400).json({ error: 'Bad score' })
-	const user = await getUserFromToken(token)
-	const profile = await ensureProfile(user.id)
-	const newMax = Math.max(profile.max_score || 0, score)
-	if (newMax !== profile.max_score) {
-		const { error: upErr, data } = await adminClient.from('profiles').update({ max_score: newMax }).eq('id', user.id).select().single()
-		if (upErr) throw upErr
-		return res.json({ updated: true, max_score: data.max_score })
-	}
-	res.json({ updated: false, max_score: profile.max_score })
-}
-
-async function leaderboard(res) {
-	const { data, error } = await adminClient.from('profiles').select('username, max_score').not('username','is', null).order('max_score', { ascending: false }).limit(10)
-	if (error) throw error
-	res.json({ leaderboard: data })
-}
+// Removed game-specific endpoints (submit-score, leaderboard)
 
 // ---------- Profiles Extended ----------
 const PROFILE_FIELDS = ['age','gender','address','occupation','motivation']
@@ -141,7 +118,6 @@ function filterProfile(p) {
 	return {
 		id: p.id,
 		username: p.username,
-		max_score: p.max_score,
 		age: p.age ?? null,
 		gender: p.gender ?? null,
 		address: p.address ?? null,

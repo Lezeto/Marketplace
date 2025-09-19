@@ -5,17 +5,13 @@ import './App.css'
 // Supabase client will be dynamically imported to avoid SSR issues if deployed.
 
 function App() {
-  const [view, setView] = useState('loading') // loading | auth | username | game | profile | profile-edit | chat
+  const [view, setView] = useState('loading') // loading | auth | username | profile | profile-edit | chat
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [username, setUsername] = useState('')
   const [desiredUsername, setDesiredUsername] = useState('')
   const [session, setSession] = useState(null)
-  const [leaderboard, setLeaderboard] = useState([])
-  const [gameState, setGameState] = useState('idle') // idle | counting | finished
-  const [timeLeft, setTimeLeft] = useState(5)
-  const [clicks, setClicks] = useState(0)
-  const [maxScore, setMaxScore] = useState(0)
+  // Removed maxScore (was used by the old game)
   const [error, setError] = useState('')
   const [loadingAction, setLoadingAction] = useState(false)
   // Extended profile data (my profile)
@@ -65,8 +61,7 @@ function App() {
 
   const resetAll = () => {
     setUsername('')
-    setMaxScore(0)
-    setLeaderboard([])
+  // no-op: max score removed
     setMyProfile(null)
     setViewedProfile(null)
     setMessages([])
@@ -94,11 +89,9 @@ function App() {
         setView('username')
       } else {
         setUsername(me.username)
-        setMaxScore(me.max_score || 0)
         // store extended profile
         setMyProfile(me)
-        setView('game')
-        loadLeaderboard()
+        setView('profile')
       }
     } catch (e) {
       console.error(e)
@@ -144,8 +137,7 @@ function App() {
         const me = await callApi({ action: 'me', token })
         setMyProfile(me)
       }
-      setView('game')
-      loadLeaderboard()
+      setView('profile')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -153,56 +145,13 @@ function App() {
     }
   }
 
-  const loadLeaderboard = useCallback(async () => {
-    try {
-      const data = await callApi({ action: 'leaderboard' })
-      setLeaderboard(data.leaderboard || [])
-    } catch (e) {
-      console.error(e)
-    }
-  }, [callApi])
-
-  // Game logic
-  useEffect(() => {
-    let timer
-    if (gameState === 'counting' && timeLeft > 0) {
-      timer = setTimeout(() => setTimeLeft(t => t - 1), 1000)
-    } else if (gameState === 'counting' && timeLeft === 0) {
-      setGameState('finished')
-      submitScore()
-    }
-    return () => clearTimeout(timer)
-  }, [gameState, timeLeft])
-
-  const startGame = () => {
-    setClicks(0)
-    setTimeLeft(5)
-    setGameState('counting')
-  }
-
-  const registerClick = () => {
-    if (gameState !== 'counting') return
-    setClicks(c => c + 1)
-  }
-
-  const submitScore = async () => {
-    try {
-      const token = session?.access_token
-      if (!token) return
-      const resp = await callApi({ action: 'submit-score', token, score: clicks })
-      setMaxScore(resp.max_score)
-      loadLeaderboard()
-    } catch (e) {
-      console.error(e)
-    }
-  }
 
   const signOut = async () => {
     await supabase.auth.signOut()
   }
 
   // ------- Navigation helpers -------
-  const goGame = () => { setView('game'); setViewedProfile(null) }
+  const goProfile = () => { setView('profile'); setViewedProfile(null) }
   const openProfile = async (uname) => {
     if (!uname) return
     if (uname === username) {
@@ -329,7 +278,6 @@ function App() {
   // Reusable nav (only after game/login)
   const NavBar = () => (
     <div className="nav-bar">
-      <button onClick={goGame} className={view === 'game' ? 'active' : ''}>Game</button>
       <button onClick={() => openProfile(username)} className={view.startsWith('profile') ? 'active' : ''}>Profile</button>
       <button onClick={enterChat} className={view === 'chat' ? 'active' : ''}>Chat</button>
       <div className="spacer" />
@@ -345,8 +293,8 @@ function App() {
   } else if (view === 'auth') {
     content = (
       <div className="panel">
-        <h1>Click Blitz</h1>
-        <p className="tagline">Click as many times as you can in 5 seconds!</p>
+  <h1>Community Space</h1>
+  <p className="tagline">Sign in to edit your profile and chat with others.</p>
         {error && <div className="error">{error}</div>}
         <form className="auth-form" onSubmit={handleSignIn} autoComplete="on">
           <label htmlFor="email" className="visually-hidden">Email</label>
@@ -373,40 +321,6 @@ function App() {
         <button className="link-btn" onClick={signOut}>Sign Out</button>
       </div>
     )
-  } else if (view === 'game') {
-    content = (
-      <div className="layout">
-        <div className="main-game">
-          <NavBar />
-          <div className="score-box">
-            <div className="label">Your max score</div>
-            <div className="value">{maxScore}</div>
-          </div>
-          {gameState !== 'counting' && (
-            <button className="start-btn" onClick={startGame}>Start 5s Round</button>
-          )}
-          {gameState === 'counting' && <div className="timer">Time: {timeLeft}s</div>}
-          <div className={`click-area ${gameState === 'counting' ? 'active' : ''}`} onClick={registerClick}>
-            {gameState === 'idle' && <span>Press Start then click here fast!</span>}
-            {gameState === 'counting' && <span>{clicks} clicks</span>}
-            {gameState === 'finished' && <span>Round over! {clicks} clicks. Start again?</span>}
-          </div>
-        </div>
-        <div className="sidebar">
-          <h3>Top 10</h3>
-          <button className="refresh" onClick={loadLeaderboard}>↻ Refresh</button>
-          <ol className="leaderboard">
-            {leaderboard.map((r, i) => (
-              <li key={r.username + i} className={r.username === username ? 'me' : ''}>
-                <span className="rank">{i + 1}.</span>
-                <button type="button" className="user linkish" onClick={() => openProfile(r.username)}>{r.username}</button>
-                <span className="score">{r.max_score}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </div>
-    )
   } else if (view === 'profile') {
     const prof = viewedProfile || myProfile
     content = (
@@ -419,7 +333,6 @@ function App() {
               <>
                 <h2>{prof.username}</h2>
                 <div className="profile-grid">
-                  <div><span className="k">Max Score:</span> <span className="v">{prof.max_score}</span></div>
                   <div><span className="k">Age:</span> <span className="v">{prof.age ?? '—'}</span></div>
                   <div><span className="k">Gender:</span> <span className="v">{prof.gender || '—'}</span></div>
                   <div className="full"><span className="k">Occupation:</span> <span className="v">{prof.occupation || '—'}</span></div>
@@ -427,7 +340,7 @@ function App() {
                   <div className="full"><span className="k">Motivation:</span> <span className="v">{prof.motivation || '—'}</span></div>
                 </div>
                 {(!viewedProfile) && <button className="mt" onClick={beginEditProfile}>Edit Profile</button>}
-                <button className="link-btn mt" onClick={goGame}>Back to Game</button>
+                <button className="link-btn mt" onClick={goProfile}>Back</button>
               </>
             )}
           </div>
@@ -487,7 +400,7 @@ function App() {
               <input value={chatInput} onChange={e => setChatInput(e.target.value)} maxLength={500} placeholder="Type a message" />
               <button disabled={chatLoading || !chatInput.trim()}>Send</button>
             </form>
-            <button className="link-btn mt" onClick={goGame}>Back to Game</button>
+            <button className="link-btn mt" onClick={goProfile}>Back</button>
           </div>
         </div>
       </div>
