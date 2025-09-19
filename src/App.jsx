@@ -5,7 +5,7 @@ import './App.css'
 // Supabase client will be dynamically imported to avoid SSR issues if deployed.
 
 function App() {
-  const [view, setView] = useState('loading') // loading | auth | username | profile | profile-edit | chat
+  const [view, setView] = useState('loading') // loading | auth | username | profile | profile-edit | chat | publish | my-listings | all-listings | listing-detail
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [username, setUsername] = useState('')
@@ -28,8 +28,19 @@ function App() {
   const [messages, setMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+  const [notice, setNotice] = useState('')
   const lastMessageIdRef = useRef(null)
   const chatPollingRef = useRef(null)
+
+  // Listings state
+  const [publishTitle, setPublishTitle] = useState('')
+  const [publishAddress, setPublishAddress] = useState('')
+  const [publishPrice, setPublishPrice] = useState('')
+  const [publishDescription, setPublishDescription] = useState('')
+  const [myListings, setMyListings] = useState([])
+  const [allListings, setAllListings] = useState([])
+  const [userListings, setUserListings] = useState([])
+  const [currentListing, setCurrentListing] = useState(null)
 
   // Lazy load supabase
   const [supabase, setSupabase] = useState(null)
@@ -65,6 +76,14 @@ function App() {
     setMyProfile(null)
     setViewedProfile(null)
     setMessages([])
+    setPublishTitle('')
+    setPublishAddress('')
+    setPublishPrice('')
+    setPublishDescription('')
+    setMyListings([])
+    setAllListings([])
+    setUserListings([])
+    setCurrentListing(null)
     setView('auth')
   }
 
@@ -105,10 +124,15 @@ function App() {
     if (!supabase) return
     setLoadingAction(true)
     setError('')
-    const { data, error } = await supabase.auth.signUp({ email, password })
+    const siteUrl = import.meta.env.VITE_SITE_URL || (typeof window !== 'undefined' ? window.location.origin : undefined)
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: siteUrl }
+    })
     if (error) setError(error.message)
     else if (data.user) {
-      // user must verify email depending on settings; continue
+      setNotice('Check your email to confirm your account, then return here. If you do not see it, check spam.')
     }
     setLoadingAction(false)
   }
@@ -217,7 +241,7 @@ function App() {
   }
 
   const exitChat = () => {
-    setView('game')
+    setView('profile')
   }
 
   const loadMessages = useCallback(async (initial = false) => {
@@ -275,11 +299,89 @@ function App() {
     }
   }
 
+  // ------- Listings functionality -------
+  const goPublish = () => setView('publish')
+
+  const createListing = async (e) => {
+    e.preventDefault()
+    try {
+      setLoadingAction(true)
+      setError('')
+      const token = session?.access_token
+      if (!token) return
+      const payload = {
+        action: 'create-listing',
+        token,
+        title: publishTitle,
+        address: publishAddress,
+        price: publishPrice,
+        description: publishDescription,
+      }
+      const resp = await callApi(payload)
+      // Clear form and navigate to my listings
+      setPublishTitle('')
+      setPublishAddress('')
+      setPublishPrice('')
+      setPublishDescription('')
+      await loadMyListings()
+      setView('my-listings')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const loadMyListings = async () => {
+    try {
+      const token = session?.access_token
+      if (!token) return
+      const resp = await callApi({ action: 'list-my-listings', token })
+      setMyListings(resp.listings || [])
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const loadAllListings = async () => {
+    try {
+      const resp = await callApi({ action: 'list-all-listings' })
+      setAllListings(resp.listings || [])
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const loadUserListings = async (uname) => {
+    try {
+      const resp = await callApi({ action: 'list-user-listings', username: uname })
+      setUserListings(resp.listings || [])
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const openListing = async (id) => {
+    try {
+      setLoadingAction(true)
+      const resp = await callApi({ action: 'get-listing', id })
+      setCurrentListing(resp.listing)
+      setView('listing-detail')
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
   // Reusable nav (only after game/login)
   const NavBar = () => (
     <div className="nav-bar">
       <button onClick={() => openProfile(username)} className={view.startsWith('profile') ? 'active' : ''}>Profile</button>
       <button onClick={enterChat} className={view === 'chat' ? 'active' : ''}>Chat</button>
+      <button onClick={() => { loadAllListings(); setView('all-listings') }} className={view === 'all-listings' ? 'active' : ''}>All Listings</button>
+      <button onClick={() => { loadMyListings(); setView('my-listings') }} className={view === 'my-listings' ? 'active' : ''}>My Listings</button>
+      <button onClick={goPublish} className={view === 'publish' ? 'active' : ''}>Publish</button>
       <div className="spacer" />
       <span className="nav-username">{username}</span>
       <button onClick={signOut}>Sign Out</button>
@@ -305,6 +407,7 @@ function App() {
             <button type="submit" disabled={loadingAction}>Sign In</button>
             <button type="button" onClick={handleSignUp} disabled={loadingAction}>Sign Up</button>
           </div>
+          {notice && <div style={{marginTop:'0.5rem', fontSize:'0.85rem', color:'#8b949e'}}>{notice}</div>}
         </form>
       </div>
     )
@@ -340,7 +443,21 @@ function App() {
                   <div className="full"><span className="k">Motivation:</span> <span className="v">{prof.motivation || '—'}</span></div>
                 </div>
                 {(!viewedProfile) && <button className="mt" onClick={beginEditProfile}>Edit Profile</button>}
-                <button className="link-btn mt" onClick={goProfile}>Back</button>
+                <div className="mt">
+                  <h3 style={{margin:'0 0 .5rem'}}>Listings by {prof.username}</h3>
+                  <button className="link-btn" onClick={() => { loadUserListings(prof.username); setView('profile') }}>Refresh</button>
+                  <div className="listings">
+                    {(userListings || []).filter(l => l.username === prof.username).map(l => (
+                      <div key={l.id} className="listing-row" onClick={() => openListing(l.id)}>
+                        <div className="title">{l.title}</div>
+                        <div className="price">${l.price}</div>
+                      </div>
+                    ))}
+                    {userListings && userListings.filter(l => l.username === prof.username).length === 0 && (
+                      <div className="empty">No listings yet.</div>
+                    )}
+                  </div>
+                </div>
               </>
             )}
           </div>
@@ -401,6 +518,104 @@ function App() {
               <button disabled={chatLoading || !chatInput.trim()}>Send</button>
             </form>
             <button className="link-btn mt" onClick={goProfile}>Back</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  else if (view === 'publish') {
+    content = (
+      <div className="layout single">
+        <div className="main-game">
+          <NavBar />
+          <form className="profile-form" onSubmit={createListing}>
+            <h2>Publish Listing</h2>
+            {error && <div className="error">{error}</div>}
+            <div className="form-grid">
+              <label className="col-full">Title
+                <input value={publishTitle} onChange={e => setPublishTitle(e.target.value)} maxLength={120} required />
+              </label>
+              <label className="col-full">Address
+                <input value={publishAddress} onChange={e => setPublishAddress(e.target.value)} maxLength={200} required />
+              </label>
+              <label>Price
+                <input type="number" step="0.01" min="0" value={publishPrice} onChange={e => setPublishPrice(e.target.value)} required />
+              </label>
+              <label className="col-full">Description
+                <textarea rows={4} value={publishDescription} onChange={e => setPublishDescription(e.target.value)} maxLength={2000} required />
+              </label>
+            </div>
+            <div className="row mt">
+              <button type="submit" disabled={loadingAction}>Publish</button>
+              <button type="button" className="secondary" onClick={() => setView('profile')}>Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )
+  }
+  else if (view === 'my-listings') {
+    content = (
+      <div className="layout single">
+        <div className="main-game">
+          <NavBar />
+          <div className="profile-card">
+            <h2>My Listings</h2>
+            <div className="listings">
+              {myListings.map(l => (
+                <div key={l.id} className="listing-row" onClick={() => openListing(l.id)}>
+                  <div className="title">{l.title}</div>
+                  <div className="price">${l.price}</div>
+                </div>
+              ))}
+              {myListings.length === 0 && <div className="empty">No listings yet.</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  else if (view === 'all-listings') {
+    content = (
+      <div className="layout single">
+        <div className="main-game">
+          <NavBar />
+          <div className="profile-card">
+            <h2>All Listings</h2>
+            <div className="listings">
+              {allListings.map(l => (
+                <div key={l.id} className="listing-row" onClick={() => openListing(l.id)}>
+                  <div className="user">{l.username}</div>
+                  <div className="title">{l.title}</div>
+                  <div className="price">${l.price}</div>
+                </div>
+              ))}
+              {allListings.length === 0 && <div className="empty">No listings found.</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  else if (view === 'listing-detail') {
+    content = (
+      <div className="layout single">
+        <div className="main-game">
+          <NavBar />
+          <div className="profile-card">
+            {!currentListing && <div>Loading...</div>}
+            {currentListing && (
+              <>
+                <h2>{currentListing.title}</h2>
+                <div className="profile-grid">
+                  <div><span className="k">Seller:</span> <button className="link-btn" onClick={() => openProfile(currentListing.username)}>{currentListing.username}</button></div>
+                  <div><span className="k">Price:</span> <span className="v">${currentListing.price}</span></div>
+                  <div className="full"><span className="k">Address:</span> <span className="v">{currentListing.address}</span></div>
+                  <div className="full"><span className="k">Description:</span> <span className="v">{currentListing.description}</span></div>
+                </div>
+                <button className="link-btn mt" onClick={() => setView('all-listings')}>Back to All</button>
+              </>
+            )}
           </div>
         </div>
       </div>

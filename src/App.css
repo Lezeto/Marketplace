@@ -98,13 +98,21 @@ button:disabled { opacity:.6; cursor:not-allowed; }
 .empty { opacity:.6; font-size:0.75rem; text-align:center; margin-top:1rem; }
 
 /* Layout single variant */
-.layout.single { max-width:760px; }
+.layout.single { max-width:760px; min-height: 760px;}
 
 /* Scrollbar styling (optional) */
 .messages::-webkit-scrollbar { width:8px; }
 .messages::-webkit-scrollbar-track { background:#0d1117; }
 .messages::-webkit-scrollbar-thumb { background:#30363d; border-radius:6px; }
 .messages::-webkit-scrollbar-thumb:hover { background:#3d444d; }
+
+/* Listings */
+.listings { display:flex; flex-direction:column; gap:0.5rem; }
+.listing-row { display:grid; grid-template-columns:1fr auto; gap:0.5rem; align-items:center; background:#0d1117; border:1px solid #30363d; padding:0.6rem 0.75rem; border-radius:10px; cursor:pointer; }
+.listing-row:hover { border-color:#2563eb; }
+.listing-row .user { font-size:0.75rem; color:#8b949e; }
+.listing-row .title { font-weight:600; }
+.listing-row .price { font-weight:700; }
 
 @media (max-width: 920px) {
   .layout { flex-direction:column; }
