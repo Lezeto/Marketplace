@@ -279,6 +279,16 @@ function App() {
     }
   }, [view, loadMessages])
 
+  // Auto-load listings for the current profile view
+  useEffect(() => {
+    if (view === 'profile') {
+      const prof = viewedProfile || myProfile
+      if (prof?.username) {
+        loadUserListings(prof.username)
+      }
+    }
+  }, [view, viewedProfile?.username, myProfile?.username])
+
   const sendChatMessage = async (e) => {
     e.preventDefault()
     if (!chatInput.trim()) return
@@ -445,15 +455,14 @@ function App() {
                 {(!viewedProfile) && <button className="mt" onClick={beginEditProfile}>Edit Profile</button>}
                 <div className="mt">
                   <h3 style={{margin:'0 0 .5rem'}}>Listings by {prof.username}</h3>
-                  <button className="link-btn" onClick={() => { loadUserListings(prof.username); setView('profile') }}>Refresh</button>
                   <div className="listings">
-                    {(userListings || []).filter(l => l.username === prof.username).map(l => (
+                    {(userListings || []).map(l => (
                       <div key={l.id} className="listing-row" onClick={() => openListing(l.id)}>
                         <div className="title">{l.title}</div>
                         <div className="price">${l.price}</div>
                       </div>
                     ))}
-                    {userListings && userListings.filter(l => l.username === prof.username).length === 0 && (
+                    {(userListings || []).length === 0 && (
                       <div className="empty">No listings yet.</div>
                     )}
                   </div>
