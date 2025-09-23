@@ -31,6 +31,9 @@ function App() {
   const [notice, setNotice] = useState('')
   const lastMessageIdRef = useRef(null)
   const chatPollingRef = useRef(null)
+  const appliedStoredViewRef = useRef(false)
+  const viewRef = useRef('loading')
+  const didInitialRouteRef = useRef(false)
 
   // Listings state
   const [publishTitle, setPublishTitle] = useState('')
@@ -56,20 +59,51 @@ function App() {
       const { data: { session } } = await client.auth.getSession()
       if (session) {
         setSession(session)
-        await hydrateProfile(client, session)
+        // Preserve current view on initial load; we'll restore from localStorage
+        await hydrateProfile(client, session, true)
       } else {
         setView('auth')
       }
-      client.auth.onAuthStateChange((_event, session) => {
+      client.auth.onAuthStateChange((event, session) => {
         setSession(session)
         if (session) {
-          hydrateProfile(client, session)
+          // Preserve current view for non-SIGNED_IN events (e.g., TOKEN_REFRESHED)
+          const preserveView = event !== 'SIGNED_IN'
+          hydrateProfile(client, session, preserveView)
         } else {
           resetAll()
         }
       })
     })()
   }, [])
+
+  // Keep a live ref of the current view to avoid stale closures
+  useEffect(() => { viewRef.current = view }, [view])
+
+  // Persist view to localStorage (except the transient 'loading')
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && view && view !== 'loading') {
+        window.localStorage.setItem('app.view', view)
+      }
+    } catch {}
+  }, [view])
+
+  // Restore last view once after login/profile is available
+  useEffect(() => {
+    if (appliedStoredViewRef.current) return
+    if (!session) return
+    // If username is required and not set, don't restore a non-username view
+    const hasUsername = !!(myProfile?.username || username)
+    try {
+      const stored = typeof window !== 'undefined' ? window.localStorage.getItem('app.view') : null
+      if (!stored) return
+      if (stored === 'loading' || stored === 'auth') return
+      if (!hasUsername && stored !== 'username') return
+      setView(stored)
+      appliedStoredViewRef.current = true
+    } catch {}
+  }, [session, myProfile?.username, username])
 
   const resetAll = () => {
     setUsername('')
@@ -86,6 +120,8 @@ function App() {
     setUserListings([])
     setCurrentListing(null)
     setView('auth')
+    appliedStoredViewRef.current = false
+    didInitialRouteRef.current = false
   }
 
   const callApi = useCallback(async (payload) => {
@@ -101,17 +137,25 @@ function App() {
     return res.json()
   }, [])
 
-  const hydrateProfile = async (client, sess) => {
+  const hydrateProfile = async (client, sess, preserveView = false) => {
     try {
       const token = sess.access_token
       const me = await callApi({ action: 'me', token })
       if (!me.username) {
         setView('username')
+        didInitialRouteRef.current = true
       } else {
         setUsername(me.username)
         // store extended profile
         setMyProfile(me)
-        setView('profile')
+        if (!preserveView && !didInitialRouteRef.current) {
+          // Only push once, and only if coming from auth-related views; don't override active pages like chat/publish
+          const v = viewRef.current
+          if (v === 'loading' || v === 'auth' || v === 'username' || v === 'profile') {
+            setView('profile')
+          }
+          didInitialRouteRef.current = true
+        }
       }
     } catch (e) {
       console.error(e)
