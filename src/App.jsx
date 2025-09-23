@@ -37,6 +37,7 @@ function App() {
   const [publishAddress, setPublishAddress] = useState('')
   const [publishPrice, setPublishPrice] = useState('')
   const [publishDescription, setPublishDescription] = useState('')
+  const [publishFile, setPublishFile] = useState(null)
   const [myListings, setMyListings] = useState([])
   const [allListings, setAllListings] = useState([])
   const [userListings, setUserListings] = useState([])
@@ -319,6 +320,32 @@ function App() {
       setError('')
       const token = session?.access_token
       if (!token) return
+      // Upload image to Supabase Storage if present
+      let uploadedUrl
+      if (publishFile && supabase) {
+        try {
+          const userId = session?.user?.id
+          const ext = (() => {
+            const n = publishFile.name || ''
+            const i = n.lastIndexOf('.')
+            return i > -1 ? n.slice(i + 1).toLowerCase() : 'jpg'
+          })()
+          const rid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).slice(2)
+          const path = `${userId}/${rid}-${Date.now()}.${ext}`
+          const { error: upErr } = await supabase.storage.from('listings2').upload(path, publishFile, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: publishFile.type || 'image/jpeg'
+          })
+          if (upErr) throw upErr
+          const { data: pub } = supabase.storage.from('listings2').getPublicUrl(path)
+          uploadedUrl = pub.publicUrl
+        } catch (e) {
+          setError(`Image upload failed: ${e.message || e}`)
+          setLoadingAction(false)
+          return
+        }
+      }
       const payload = {
         action: 'create-listing',
         token,
@@ -326,6 +353,7 @@ function App() {
         address: publishAddress,
         price: publishPrice,
         description: publishDescription,
+        image_url: uploadedUrl,
       }
       const resp = await callApi(payload)
       // Clear form and navigate to my listings
@@ -333,6 +361,7 @@ function App() {
       setPublishAddress('')
       setPublishPrice('')
       setPublishDescription('')
+      setPublishFile(null)
       await loadMyListings()
       setView('my-listings')
     } catch (e) {
@@ -457,7 +486,8 @@ function App() {
                   <h3 style={{margin:'0 0 .5rem'}}>Listings by {prof.username}</h3>
                   <div className="listings">
                     {(userListings || []).map(l => (
-                      <div key={l.id} className="listing-row" onClick={() => openListing(l.id)}>
+                      <div key={l.id} className={`listing-row ${l.image_url ? 'has-thumb' : ''}`} onClick={() => openListing(l.id)}>
+                        {l.image_url && <img className="thumb" src={l.image_url} alt="" />}
                         <div className="title">{l.title}</div>
                         <div className="price">${l.price}</div>
                       </div>
@@ -550,6 +580,9 @@ function App() {
               <label>Price
                 <input type="number" step="0.01" min="0" value={publishPrice} onChange={e => setPublishPrice(e.target.value)} required />
               </label>
+              <label className="col-full">Image (optional)
+                <input type="file" accept="image/*" onChange={e => setPublishFile(e.target.files && e.target.files[0] ? e.target.files[0] : null)} />
+              </label>
               <label className="col-full">Description
                 <textarea rows={4} value={publishDescription} onChange={e => setPublishDescription(e.target.value)} maxLength={2000} required />
               </label>
@@ -572,7 +605,8 @@ function App() {
             <h2>My Listings</h2>
             <div className="listings">
               {myListings.map(l => (
-                <div key={l.id} className="listing-row" onClick={() => openListing(l.id)}>
+                <div key={l.id} className={`listing-row ${l.image_url ? 'has-thumb' : ''}`} onClick={() => openListing(l.id)}>
+                  {l.image_url && <img className="thumb" src={l.image_url} alt="" />}
                   <div className="title">{l.title}</div>
                   <div className="price">${l.price}</div>
                 </div>
@@ -593,7 +627,8 @@ function App() {
             <h2>All Listings</h2>
             <div className="listings">
               {allListings.map(l => (
-                <div key={l.id} className="listing-row" onClick={() => openListing(l.id)}>
+                <div key={l.id} className={`listing-row ${l.image_url ? 'has-thumb' : ''}`} onClick={() => openListing(l.id)}>
+                  {l.image_url && <img className="thumb" src={l.image_url} alt="" />}
                   <div className="user">{l.username}</div>
                   <div className="title">{l.title}</div>
                   <div className="price">${l.price}</div>
@@ -616,6 +651,9 @@ function App() {
             {currentListing && (
               <>
                 <h2>{currentListing.title}</h2>
+                {currentListing.image_url && (
+                  <img className="listing-image" src={currentListing.image_url} alt="" />
+                )}
                 <div className="profile-grid">
                   <div><span className="k">Seller:</span> <button className="link-btn" onClick={() => openProfile(currentListing.username)}>{currentListing.username}</button></div>
                   <div><span className="k">Price:</span> <span className="v">${currentListing.price}</span></div>

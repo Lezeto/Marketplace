@@ -212,6 +212,7 @@ async function sendMessage(body, res) {
 // address text,
 // price numeric,
 // description text,
+// image_url text,
 // created_at timestamptz default now()
 
 function filterListingPublic(row) {
@@ -219,6 +220,7 @@ function filterListingPublic(row) {
 		id: row.id,
 		username: row.username,
 		title: row.title,
+		image_url: row.image_url ?? null,
 		price: row.price,
 		created_at: row.created_at,
 	}
@@ -233,12 +235,13 @@ function filterListingFull(row) {
 		address: row.address,
 		price: row.price,
 		description: row.description,
+		image_url: row.image_url ?? null,
 		created_at: row.created_at,
 	}
 }
 
 async function createListing(body, res) {
-	const { token, title, address, price, description } = body
+	const { token, title, address, price, description, image_url } = body
 	if (!token) return res.status(401).json({ error: 'Missing token' })
 	const user = await getUserFromToken(token)
 	const profile = await ensureProfile(user.id)
@@ -252,6 +255,14 @@ async function createListing(body, res) {
 	if (a.length < 3 || a.length > 200) return res.status(400).json({ error: 'Address must be 3-200 chars' })
 	if (!Number.isFinite(p) || p < 0 || p > 1e9) return res.status(400).json({ error: 'Price must be a non-negative number' })
 	if (d.length < 3 || d.length > 2000) return res.status(400).json({ error: 'Description must be 3-2000 chars' })
+	let imgUrl = null
+	if (image_url != null) {
+		const url = String(image_url)
+		if (url.length > 1000) return res.status(400).json({ error: 'image_url too long' })
+		// Allow only http/https public URLs
+		if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'image_url must be http(s)' })
+		imgUrl = url
+	}
 	const { data, error } = await adminClient.from('listings2').insert({
 		user_id: user.id,
 		username: profile.username,
@@ -259,6 +270,7 @@ async function createListing(body, res) {
 		address: a,
 		price: p,
 		description: d,
+		image_url: imgUrl,
 	}).select().single()
 	if (error) throw error
 	res.json({ listing: filterListingFull(data) })
