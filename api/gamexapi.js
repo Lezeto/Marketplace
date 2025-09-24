@@ -213,6 +213,7 @@ async function sendMessage(body, res) {
 // price numeric,
 // description text,
 // image_url text,
+// region_code text,
 // created_at timestamptz default now()
 
 function filterListingPublic(row) {
@@ -222,6 +223,7 @@ function filterListingPublic(row) {
 		title: row.title,
 		image_url: row.image_url ?? null,
 		price: row.price,
+		region_code: row.region_code ?? null,
 		created_at: row.created_at,
 	}
 }
@@ -236,12 +238,17 @@ function filterListingFull(row) {
 		price: row.price,
 		description: row.description,
 		image_url: row.image_url ?? null,
+		region_code: row.region_code ?? null,
 		created_at: row.created_at,
 	}
 }
 
+const REGION_CODES = [
+	'I','II','III','IV','V','RM','VI','VII','VIII','IX','X','XI','XII','XIV','XV','XVI'
+]
+
 async function createListing(body, res) {
-	const { token, title, address, price, description, image_url } = body
+	const { token, title, address, price, description, image_url, region_code } = body
 	if (!token) return res.status(401).json({ error: 'Missing token' })
 	const user = await getUserFromToken(token)
 	const profile = await ensureProfile(user.id)
@@ -255,6 +262,7 @@ async function createListing(body, res) {
 	if (a.length < 3 || a.length > 200) return res.status(400).json({ error: 'Address must be 3-200 chars' })
 	if (!Number.isFinite(p) || p < 0 || p > 1e9) return res.status(400).json({ error: 'Price must be a non-negative number' })
 	if (d.length < 3 || d.length > 2000) return res.status(400).json({ error: 'Description must be 3-2000 chars' })
+	if (!region_code || !REGION_CODES.includes(String(region_code))) return res.status(400).json({ error: 'Invalid region_code' })
 	let imgUrl = null
 	if (image_url != null) {
 		const url = String(image_url)
@@ -271,6 +279,7 @@ async function createListing(body, res) {
 		price: p,
 		description: d,
 		image_url: imgUrl,
+		region_code: String(region_code),
 	}).select().single()
 	if (error) throw error
 	res.json({ listing: filterListingFull(data) })
@@ -282,7 +291,7 @@ async function listMyListings(body, res) {
 	const user = await getUserFromToken(token)
 	const { data, error } = await adminClient
 		.from('listings2')
-		.select('id, username, title, price, created_at')
+		.select('id, username, title, price, region_code, created_at')
 		.eq('user_id', user.id)
 		.order('id', { ascending: false })
 		.limit(Math.min(limit, 200))
@@ -295,7 +304,7 @@ async function listUserListings(body, res) {
 	if (!username) return res.status(400).json({ error: 'Missing username' })
 	const { data, error } = await adminClient
 		.from('listings2')
-		.select('id, username, title, price, created_at')
+		.select('id, username, title, price, region_code, created_at')
 		.eq('username', username)
 		.order('id', { ascending: false })
 		.limit(Math.min(limit, 200))
@@ -307,7 +316,7 @@ async function listAllListings(body, res) {
 	const { limit = 50 } = body
 	const { data, error } = await adminClient
 		.from('listings2')
-		.select('id, username, title, price, created_at')
+		.select('id, username, title, price, region_code, created_at')
 		.order('id', { ascending: false })
 		.limit(Math.min(limit, 200))
 	if (error) throw error

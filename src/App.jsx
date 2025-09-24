@@ -41,6 +41,7 @@ function App() {
   const [publishPrice, setPublishPrice] = useState('')
   const [publishDescription, setPublishDescription] = useState('')
   const [publishFile, setPublishFile] = useState(null)
+  const [publishRegion, setPublishRegion] = useState('')
   const [myListings, setMyListings] = useState([])
   const [allListings, setAllListings] = useState([])
   const [userListings, setUserListings] = useState([])
@@ -398,6 +399,7 @@ function App() {
         price: publishPrice,
         description: publishDescription,
         image_url: uploadedUrl,
+        region_code: publishRegion,
       }
       const resp = await callApi(payload)
       // Clear form and navigate to my listings
@@ -406,6 +408,7 @@ function App() {
       setPublishPrice('')
       setPublishDescription('')
       setPublishFile(null)
+  setPublishRegion('')
       await loadMyListings()
       setView('my-listings')
     } catch (e) {
@@ -471,6 +474,30 @@ function App() {
     </div>
   )
 
+  const REGIONS = [
+    { code: 'I', label: 'I – Tarapacá' },
+    { code: 'II', label: 'II – Antofagasta' },
+    { code: 'III', label: 'III – Atacama' },
+    { code: 'IV', label: 'IV – Coquimbo' },
+    { code: 'V', label: 'V – Valparaíso' },
+    { code: 'RM', label: 'RM – Región Metropolitana de Santiago' },
+    { code: 'VI', label: 'VI – O’Higgins' },
+    { code: 'VII', label: 'VII – Maule' },
+    { code: 'VIII', label: 'VIII – Biobío' },
+    { code: 'IX', label: 'IX – La Araucanía' },
+    { code: 'X', label: 'X – Los Lagos' },
+    { code: 'XI', label: 'XI – Aysén' },
+    { code: 'XII', label: 'XII – Magallanes y Antártica' },
+    { code: 'XIV', label: 'XIV – Los Ríos' },
+    { code: 'XV', label: 'XV – Arica y Parinacota' },
+    { code: 'XVI', label: 'XVI – Ñuble' },
+  ]
+
+  const regionLabel = (code) => {
+    const r = REGIONS.find(r => r.code === code)
+    return r ? r.label : code
+  }
+
   // UI pieces
   let content
   if (view === 'loading') {
@@ -534,6 +561,7 @@ function App() {
                         {l.image_url && <img className="thumb" src={l.image_url} alt="" />}
                         <div className="title">{l.title}</div>
                         <div className="price">${l.price}</div>
+                        {l.region_code && <span className="chip">{l.region_code}</span>}
                       </div>
                     ))}
                     {(userListings || []).length === 0 && (
@@ -618,6 +646,14 @@ function App() {
               <label className="col-full">Title
                 <input value={publishTitle} onChange={e => setPublishTitle(e.target.value)} maxLength={120} required />
               </label>
+              <label>Region
+                <select value={publishRegion} onChange={e => setPublishRegion(e.target.value)} required>
+                  <option value="" disabled>Select region</option>
+                  {REGIONS.map(r => (
+                    <option key={r.code} value={r.code}>{r.label}</option>
+                  ))}
+                </select>
+              </label>
               <label className="col-full">Address
                 <input value={publishAddress} onChange={e => setPublishAddress(e.target.value)} maxLength={200} required />
               </label>
@@ -653,6 +689,7 @@ function App() {
                   {l.image_url && <img className="thumb" src={l.image_url} alt="" />}
                   <div className="title">{l.title}</div>
                   <div className="price">${l.price}</div>
+                  {l.region_code && <span className="chip">{l.region_code}</span>}
                 </div>
               ))}
               {myListings.length === 0 && <div className="empty">No listings yet.</div>}
@@ -676,6 +713,7 @@ function App() {
                   <div className="user">{l.username}</div>
                   <div className="title">{l.title}</div>
                   <div className="price">${l.price}</div>
+                  {l.region_code && <span className="chip">{l.region_code}</span>}
                 </div>
               ))}
               {allListings.length === 0 && <div className="empty">No listings found.</div>}
@@ -701,6 +739,7 @@ function App() {
                 <div className="profile-grid">
                   <div><span className="k">Seller:</span> <button className="link-btn" onClick={() => openProfile(currentListing.username)}>{currentListing.username}</button></div>
                   <div><span className="k">Price:</span> <span className="v">${currentListing.price}</span></div>
+                  <div><span className="k">Region:</span> <span className="v">{regionLabel(currentListing.region_code)}</span></div>
                   <div className="full"><span className="k">Address:</span> <span className="v">{currentListing.address}</span></div>
                   <div className="full"><span className="k">Description:</span> <span className="v">{currentListing.description}</span></div>
                 </div>
