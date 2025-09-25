@@ -136,7 +136,24 @@ button:disabled { opacity:.6; cursor:not-allowed; }
   .leaderboard li { width:calc(50% - 0.4rem); }
 }
 
+
 @media (max-width: 560px) {
+  /* Top-align content and reduce paddings on small screens so the nav doesn't move off the top */
+  .nav-bar button { padding: 12px 6px; font-size: 12px }
+  .root {width: 100vw}
+  .app-shell { align-items: stretch; justify-content: flex-start; padding: 1rem; }
+  h2 {margin: 10px 6px}
+  .title{ font-size: 12px; }
+  .profile-card {gap: 0.5rem; padding: 15px 10px}
+  .listing-row {padding-top: 6px; padding-bottom: 6px;}
+  .layout.single { min-height: auto; }
+  .nav-bar { border-radius: 8px; gap: 6px }
+  .leaderboard li { width:100%; }
+  .main-game { padding: 15px }
+  .panel { padding:1.6rem 1.4rem; }
+}
+
+@media (max-width: 463px) {
   /* Top-align content and reduce paddings on small screens so the nav doesn't move off the top */
   .nav-bar button { padding: 6px 2px; font-size: 8px }
   .root {width: 100vw}
@@ -145,7 +162,7 @@ button:disabled { opacity:.6; cursor:not-allowed; }
   .title{ font-size: 12px; }
   .profile-card {gap: 0.5rem; padding: 10px 5px}
   .listing-row {padding-top: 2px; padding-bottom: 2px;}
-  .layout.single { min-height: auto; }
+  .layout.single { min-height: auto}
   .nav-bar { border-radius: 8px; gap: 2px }
   .leaderboard li { width:100%; }
   .main-game { padding: 0.3rem; }
