@@ -313,12 +313,16 @@ async function listUserListings(body, res) {
 }
 
 async function listAllListings(body, res) {
-	const { limit = 50 } = body
-	const { data, error } = await adminClient
+	const { limit = 50, region_code } = body
+	let query = adminClient
 		.from('listings2')
 		.select('id, username, title, price, region_code, created_at')
 		.order('id', { ascending: false })
 		.limit(Math.min(limit, 200))
+	if (region_code && REGION_CODES.includes(String(region_code))) {
+		query = query.eq('region_code', String(region_code))
+	}
+	const { data, error } = await query
 	if (error) throw error
 	res.json({ listings: data.map(filterListingPublic) })
 }

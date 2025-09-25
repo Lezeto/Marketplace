@@ -44,6 +44,7 @@ function App() {
   const [publishRegion, setPublishRegion] = useState('')
   const [myListings, setMyListings] = useState([])
   const [allListings, setAllListings] = useState([])
+  const [allRegion, setAllRegion] = useState('')
   const [userListings, setUserListings] = useState([])
   const [currentListing, setCurrentListing] = useState(null)
 
@@ -429,9 +430,12 @@ function App() {
     }
   }
 
-  const loadAllListings = async () => {
+  const loadAllListings = async (regionCode) => {
     try {
-      const resp = await callApi({ action: 'list-all-listings' })
+      const rc = regionCode !== undefined ? regionCode : allRegion
+      if (regionCode !== undefined) setAllRegion(rc)
+      const payload = rc ? { action: 'list-all-listings', region_code: rc } : { action: 'list-all-listings' }
+      const resp = await callApi(payload)
       setAllListings(resp.listings || [])
     } catch (e) {
       console.error(e)
@@ -706,6 +710,15 @@ function App() {
           <NavBar />
           <div className="profile-card">
             <h2>All Listings</h2>
+            <div className="row" style={{marginBottom:'.5rem', alignItems:'center'}}>
+              <label style={{fontSize:'.7rem', color:'#8b949e'}}>Region</label>
+              <select value={allRegion} onChange={e => loadAllListings(e.target.value)} style={{background:'#0d1117', border:'1px solid #30363d', color:'#e6edf3', borderRadius:8, padding:'0.4rem 0.55rem'}}>
+                <option value="">All</option>
+                {REGIONS.map(r => (
+                  <option key={r.code} value={r.code}>{r.label}</option>
+                ))}
+              </select>
+            </div>
             <div className="listings">
               {allListings.map(l => (
                 <div key={l.id} className={`listing-row ${l.image_url ? 'has-thumb' : ''}`} onClick={() => openListing(l.id)}>
