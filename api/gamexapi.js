@@ -70,6 +70,16 @@ export default async function handler(req, res) {
 				return await listAllListings(body, res)
 			case 'get-listing':
 				return await getListing(body, res)
+			case 'start-dm':
+				return await startDm(body, res)
+			case 'get-dm-thread':
+				return await getDmThread(body, res)
+			case 'list-dm-messages':
+				return await listDmMessages(body, res)
+			case 'send-dm-message':
+				return await sendDmMessage(body, res)
+			case 'list-dm-threads':
+				return await listDmThreads(body, res)
 			default:
 				res.status(400).json({ error: 'Unknown action' })
 		}
@@ -337,4 +347,180 @@ async function getListing(body, res) {
 		.single()
 	if (error) throw error
 	res.json({ listing: filterListingFull(data) })
+}
+
+// ---------- Direct Messages (DM) ----------
+// Schema suggestions (SQL provided separately):
+// threads2: id bigint identity pk, user_a_id uuid, user_b_id uuid, user_a_username text, user_b_username text, listing_id bigint null, created_at timestamptz
+// thread_messages2: id bigint identity pk, thread_id bigint fk, sender_id uuid, sender_username text, content text, created_at timestamptz
+
+async function findProfileByUsername(username) {
+	const { data, error } = await adminClient.from('profiles2').select('id, username').eq('username', username).maybeSingle()
+	if (error) throw error
+	return data
+}
+
+function orderPair(a, b) {
+	return a < b ? [a, b] : [b, a]
+}
+
+async function startDm(body, res) {
+	const { token, target_username, listing_id } = body
+	if (!token) return res.status(401).json({ error: 'Missing token' })
+	const user = await getUserFromToken(token)
+	const myProf = await ensureProfile(user.id)
+	if (!myProf.username) return res.status(400).json({ error: 'Set your username first' })
+	let target = null
+	let lid = null
+	if (listing_id != null) {
+		// Derive target from listing owner to avoid mismatches if username changed
+		const { data: lrow, error: lerr } = await adminClient.from('listings2').select('id, user_id, username').eq('id', listing_id).maybeSingle()
+		if (lerr) throw lerr
+		if (!lrow) return res.status(404).json({ error: 'Listing not found' })
+		lid = lrow.id
+		// Load/ensure profile for owner id
+		const ownerProf = await ensureProfile(lrow.user_id)
+		target = { id: ownerProf.id, username: ownerProf.username || lrow.username }
+	} else {
+		if (!target_username) return res.status(400).json({ error: 'Missing target_username' })
+		const t = await findProfileByUsername(String(target_username))
+		if (!t) return res.status(404).json({ error: 'User not found' })
+		target = t
+	}
+
+	if (target.id === user.id) return res.status(400).json({ error: 'Cannot message yourself' })
+
+	const [a, b] = orderPair(user.id, target.id)
+
+	// Find existing thread (same participants, same listing_id/null)
+	let existing
+	if (lid == null) {
+		const { data, error } = await adminClient
+			.from('threads2')
+			.select('*')
+			.eq('user_a_id', a).eq('user_b_id', b)
+			.is('listing_id', null)
+			.maybeSingle()
+		if (error && error.code !== 'PGRST116') throw error
+		existing = data || null
+	} else {
+		const { data, error } = await adminClient
+			.from('threads2')
+			.select('*')
+			.eq('user_a_id', a).eq('user_b_id', b)
+			.eq('listing_id', lid)
+			.maybeSingle()
+		if (error && error.code !== 'PGRST116') throw error
+		existing = data || null
+	}
+
+	if (existing) {
+		return res.json({ thread: sanitizeThread(existing, user.id) })
+	}
+
+		const payload = {
+		user_a_id: a,
+		user_b_id: b,
+		user_a_username: a === user.id ? myProf.username : target.username,
+		user_b_username: b === user.id ? myProf.username : target.username,
+		listing_id: lid,
+	}
+	const { data: inserted, error: insErr } = await adminClient.from('threads2').insert(payload).select().single()
+	if (insErr) throw insErr
+	res.json({ thread: sanitizeThread(inserted, user.id) })
+}
+
+function sanitizeThread(row, viewerId) {
+	// Mark the counterparty for convenience
+	const other_id = row.user_a_id === viewerId ? row.user_b_id : row.user_a_id
+	const other_username = row.user_a_id === viewerId ? row.user_b_username : row.user_a_username
+	return {
+		id: row.id,
+		listing_id: row.listing_id ?? null,
+		user_a_id: row.user_a_id,
+		user_b_id: row.user_b_id,
+		user_a_username: row.user_a_username,
+		user_b_username: row.user_b_username,
+		other_id,
+		other_username,
+		created_at: row.created_at,
+	}
+}
+
+async function requireThreadMembership(thread_id, user_id) {
+	const { data, error } = await adminClient
+		.from('threads2')
+		.select('*')
+		.eq('id', thread_id)
+		.maybeSingle()
+	if (error) throw error
+	if (!data || (data.user_a_id !== user_id && data.user_b_id !== user_id)) {
+		const err = new Error('Not a member of this thread')
+		err.status = 403
+		throw err
+	}
+	return data
+}
+
+async function getDmThread(body, res) {
+	const { token, thread_id } = body
+	if (!token) return res.status(401).json({ error: 'Missing token' })
+	if (!thread_id) return res.status(400).json({ error: 'Missing thread_id' })
+	const user = await getUserFromToken(token)
+	const row = await requireThreadMembership(thread_id, user.id)
+	res.json({ thread: sanitizeThread(row, user.id) })
+}
+
+async function listDmMessages(body, res) {
+	const { token, thread_id, limit = 50, after_id } = body
+	if (!token) return res.status(401).json({ error: 'Missing token' })
+	if (!thread_id) return res.status(400).json({ error: 'Missing thread_id' })
+	const user = await getUserFromToken(token)
+	await requireThreadMembership(thread_id, user.id)
+	let query = adminClient
+		.from('thread_messages2')
+		.select('id, sender_id, sender_username, content, created_at')
+		.eq('thread_id', thread_id)
+		.order('id', { ascending: true })
+		.limit(Math.min(limit, 200))
+	if (after_id) query = query.gt('id', after_id)
+	const { data, error } = await query
+	if (error) throw error
+	res.json({ messages: data })
+}
+
+async function sendDmMessage(body, res) {
+	const { token, thread_id, content } = body
+	if (!token) return res.status(401).json({ error: 'Missing token' })
+	if (!thread_id) return res.status(400).json({ error: 'Missing thread_id' })
+	if (!content || typeof content !== 'string' || !content.trim()) return res.status(400).json({ error: 'Empty message' })
+	const text = content.trim().slice(0, 1000)
+	const user = await getUserFromToken(token)
+	const row = await requireThreadMembership(thread_id, user.id)
+	// Use the stored username fields to keep display consistent
+	const sender_username = row.user_a_id === user.id ? row.user_a_username : row.user_b_username
+	const { data, error } = await adminClient
+		.from('thread_messages2')
+		.insert({ thread_id, sender_id: user.id, sender_username, content: text })
+		.select()
+		.single()
+	if (error) throw error
+	res.json({ message: data })
+}
+
+async function listDmThreads(body, res) {
+	const { token, listing_id, limit = 50 } = body
+	if (!token) return res.status(401).json({ error: 'Missing token' })
+	const user = await getUserFromToken(token)
+	let query = adminClient
+		.from('threads2')
+		.select('*')
+		.or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
+		.order('id', { ascending: false })
+		.limit(Math.min(limit, 200))
+	if (listing_id != null) query = query.eq('listing_id', listing_id)
+	const { data, error } = await query
+	if (error) throw error
+	const threads = (data || []).map(row => sanitizeThread(row, user.id))
+	res.json({ threads })
 }

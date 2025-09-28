@@ -47,6 +47,14 @@ function App() {
   const [allRegion, setAllRegion] = useState('')
   const [userListings, setUserListings] = useState([])
   const [currentListing, setCurrentListing] = useState(null)
+  // DMs state
+  const [dmThread, setDmThread] = useState(null)
+  const [dmMessages, setDmMessages] = useState([])
+  const [dmInput, setDmInput] = useState('')
+  const dmLastIdRef = useRef(null)
+  const dmPollingRef = useRef(null)
+  const [dmThreads, setDmThreads] = useState([])
+  const [dmThreadsFilterListingId, setDmThreadsFilterListingId] = useState(null)
 
   // Lazy load supabase
   const [supabase, setSupabase] = useState(null)
@@ -464,6 +472,92 @@ function App() {
     }
   }
 
+  // ------- Direct Messages (DM) -------
+  const startDmWith = async (uname, listingId) => {
+    try {
+      setLoadingAction(true)
+      const token = session?.access_token
+      if (!token || !uname) return
+      const resp = await callApi({ action: 'start-dm', token, target_username: uname, listing_id: listingId ?? null })
+      if (resp.thread) {
+        setDmThread(resp.thread)
+        setDmMessages([])
+        dmLastIdRef.current = null
+        setView('dm')
+        await loadDmMessages(resp.thread.id, true)
+      }
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const loadDmMessages = useCallback(async (threadId, initial = false) => {
+    try {
+      const token = session?.access_token
+      if (!token || !threadId) return
+      const payload = { action: 'list-dm-messages', token, thread_id: threadId }
+      if (!initial && dmLastIdRef.current) payload.after_id = dmLastIdRef.current
+      const resp = await callApi(payload)
+      if (Array.isArray(resp.messages) && resp.messages.length > 0) {
+        setDmMessages(prev => initial ? resp.messages : [...prev, ...resp.messages])
+        dmLastIdRef.current = resp.messages[resp.messages.length - 1].id
+      }
+    } catch (e) {
+      console.error('loadDmMessages', e)
+    }
+  }, [callApi, session?.access_token])
+
+  const openThreads = async (listingId = null) => {
+    try {
+      const token = session?.access_token
+      if (!token) return
+      setDmThreadsFilterListingId(listingId)
+      const payload = { action: 'list-dm-threads', token }
+      if (listingId != null) payload.listing_id = listingId
+      const resp = await callApi(payload)
+      setDmThreads(resp.threads || [])
+      setView('dm-threads')
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  const sendDm = async (e) => {
+    e.preventDefault()
+    if (!dmInput.trim() || !dmThread) return
+    try {
+      const token = session?.access_token
+      if (!token) return
+      const resp = await callApi({ action: 'send-dm-message', token, thread_id: dmThread.id, content: dmInput.trim() })
+      if (resp.message) {
+        setDmMessages(prev => [...prev, resp.message])
+        dmLastIdRef.current = resp.message.id
+        setDmInput('')
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  useEffect(() => {
+    if (view === 'dm' && dmThread?.id) {
+      dmPollingRef.current = setInterval(() => {
+        loadDmMessages(dmThread.id, false)
+      }, 4000)
+    } else if (dmPollingRef.current) {
+      clearInterval(dmPollingRef.current)
+      dmPollingRef.current = null
+    }
+    return () => {
+      if (dmPollingRef.current && view !== 'dm') {
+        clearInterval(dmPollingRef.current)
+        dmPollingRef.current = null
+      }
+    }
+  }, [view, dmThread?.id, loadDmMessages])
+
   // Reusable nav (only after game/login)
   const NavBar = () => (
     <div className="nav-bar">
@@ -556,7 +650,19 @@ function App() {
                   <div className="full"><span className="k">Address:</span> <span className="v">{prof.address || '—'}</span></div>
                   <div className="full"><span className="k">Motivation:</span> <span className="v">{prof.motivation || '—'}</span></div>
                 </div>
-                {(!viewedProfile) && <button className="mt" onClick={beginEditProfile}>Edit Profile</button>}
+                {(!viewedProfile) && (
+                  <div className="row mt">
+                    <button onClick={beginEditProfile}>Edit Profile</button>
+                    <button className="secondary" onClick={() => openThreads(null)}>Messages</button>
+                  </div>
+                )}
+                {viewedProfile && (
+                  <div className="row mt">
+                    <button onClick={() => startDmWith(viewedProfile.username)}>
+                      Message {viewedProfile.username}
+                    </button>
+                  </div>
+                )}
                 <div className="mt">
                   <h3 style={{margin:'0 0 .5rem'}}>Listings by {prof.username}</h3>
                   <div className="listings">
@@ -756,9 +862,68 @@ function App() {
                   <div className="full"><span className="k">Address:</span> <span className="v">{currentListing.address}</span></div>
                   <div className="full"><span className="k">Description:</span> <span className="v">{currentListing.description}</span></div>
                 </div>
-                <button className="link-btn mt" onClick={() => setView('all-listings')}>Back to All</button>
+                <div className="row mt">
+                  <button className="secondary" onClick={() => setView('all-listings')}>Back to All</button>
+                  {currentListing.username !== username ? (
+                    <button onClick={() => startDmWith(currentListing.username, currentListing.id)}>Message seller</button>
+                  ) : (
+                    <button onClick={() => openThreads(currentListing.id)}>View messages</button>
+                  )}
+                </div>
               </>
             )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+  else if (view === 'dm-threads') {
+    content = (
+      <div className="layout single">
+        <div className="main-game">
+          <NavBar />
+          <div className="profile-card">
+            <h2>Messages</h2>
+            {dmThreadsFilterListingId != null && (
+              <div className="empty">Filtered for listing #{dmThreadsFilterListingId}</div>
+            )}
+            <div className="listings">
+              {dmThreads.map(t => (
+                <div key={t.id} className="listing-row" onClick={() => { setDmThread(t); setDmMessages([]); dmLastIdRef.current = null; setView('dm'); loadDmMessages(t.id, true); }}>
+                  <div className="title">Chat with {t.other_username}</div>
+                  {t.listing_id && <span className="chip">#{t.listing_id}</span>}
+                </div>
+              ))}
+              {dmThreads.length === 0 && <div className="empty">No conversations yet.</div>}
+            </div>
+            <button className="link-btn mt" onClick={() => setView('profile')}>Back</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  else if (view === 'dm') {
+    content = (
+      <div className="layout single">
+        <div className="main-game">
+          <NavBar />
+          <div className="chat-wrapper">
+            <h2>Chat with {dmThread?.other_username}</h2>
+            <div className="messages">
+              {dmMessages.map(m => (
+                <div key={m.id} className="message">
+                  <span className="author">{m.sender_username}</span>
+                  <span className="content">{m.content}</span>
+                  <span className="time">{new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                </div>
+              ))}
+              {dmMessages.length === 0 && <div className="empty">No messages yet.</div>}
+            </div>
+            <form className="chat-input" onSubmit={sendDm}>
+              <input value={dmInput} onChange={e => setDmInput(e.target.value)} maxLength={1000} placeholder={`Message ${dmThread?.other_username || ''}`} />
+              <button disabled={!dmInput.trim()}>Send</button>
+            </form>
+            <button className="link-btn mt" onClick={() => setView('profile')}>Back</button>
           </div>
         </div>
       </div>
