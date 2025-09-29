@@ -323,7 +323,7 @@ async function listUserListings(body, res) {
 }
 
 async function listAllListings(body, res) {
-	const { limit = 50, region_code } = body
+	const { limit = 50, region_code, q } = body
 	let query = adminClient
 		.from('listings2')
 		.select('id, username, title, price, region_code, created_at')
@@ -331,6 +331,14 @@ async function listAllListings(body, res) {
 		.limit(Math.min(limit, 200))
 	if (region_code && REGION_CODES.includes(String(region_code))) {
 		query = query.eq('region_code', String(region_code))
+	}
+	// Optional title search (case-insensitive). Support multiple terms (AND across terms).
+	if (q != null && String(q).trim() !== '') {
+		const raw = String(q).trim().slice(0, 120)
+		const terms = raw.split(/\s+/).filter(Boolean)
+		for (const term of terms) {
+			query = query.ilike('title', `%${term}%`)
+		}
 	}
 	const { data, error } = await query
 	if (error) throw error

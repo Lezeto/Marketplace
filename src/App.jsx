@@ -45,6 +45,7 @@ function App() {
   const [myListings, setMyListings] = useState([])
   const [allListings, setAllListings] = useState([])
   const [allRegion, setAllRegion] = useState('')
+  const [allSearch, setAllSearch] = useState('')
   const [userListings, setUserListings] = useState([])
   const [currentListing, setCurrentListing] = useState(null)
   // DMs state
@@ -438,11 +439,15 @@ function App() {
     }
   }
 
-  const loadAllListings = async (regionCode) => {
+  const loadAllListings = async (regionCode, search) => {
     try {
       const rc = regionCode !== undefined ? regionCode : allRegion
+      const qv = search !== undefined ? search : allSearch
       if (regionCode !== undefined) setAllRegion(rc)
-      const payload = rc ? { action: 'list-all-listings', region_code: rc } : { action: 'list-all-listings' }
+      if (search !== undefined) setAllSearch(qv)
+      const payload = { action: 'list-all-listings' }
+      if (rc) payload.region_code = rc
+      if (qv && qv.trim()) payload.q = qv.trim()
       const resp = await callApi(payload)
       setAllListings(resp.listings || [])
     } catch (e) {
@@ -563,7 +568,7 @@ function App() {
     <div className="nav-bar">
       <button onClick={() => openProfile(username)} className={view.startsWith('profile') ? 'active' : ''}>Profile</button>
       <button onClick={enterChat} className={view === 'chat' ? 'active' : ''}>Chat</button>
-      <button onClick={() => { loadAllListings(); setView('all-listings') }} className={view === 'all-listings' ? 'active' : ''}>All Listings</button>
+  <button onClick={() => { loadAllListings('', ''); setView('all-listings') }} className={view === 'all-listings' ? 'active' : ''}>All Listings</button>
       <button onClick={() => { loadMyListings(); setView('my-listings') }} className={view === 'my-listings' ? 'active' : ''}>My Listings</button>
       <button onClick={goPublish} className={view === 'publish' ? 'active' : ''}>Publish</button>
       <div className="spacer" />
@@ -816,14 +821,29 @@ function App() {
           <NavBar />
           <div className="profile-card">
             <h2>All Listings</h2>
-            <div className="row" style={{marginBottom:'.5rem', alignItems:'center'}}>
-              <label style={{fontSize:'.7rem', color:'#8b949e'}}>Region</label>
-              <select value={allRegion} onChange={e => loadAllListings(e.target.value)} style={{background:'#0d1117', border:'1px solid #30363d', color:'#e6edf3', borderRadius:8, padding:'0.4rem 0.55rem'}}>
-                <option value="">All</option>
-                {REGIONS.map(r => (
-                  <option key={r.code} value={r.code}>{r.label}</option>
-                ))}
-              </select>
+            <div className="row" style={{marginBottom:'.5rem', alignItems:'center', gap:'.5rem', flexWrap:'wrap'}}>
+              <div className="row" style={{alignItems:'center', gap:'.4rem'}}>
+                <label style={{fontSize:'.7rem', color:'#8b949e'}}>Region</label>
+                <select value={allRegion} onChange={e => loadAllListings(e.target.value)} style={{background:'#0d1117', border:'1px solid #30363d', color:'#e6edf3', borderRadius:8, padding:'0.4rem 0.55rem'}}>
+                  <option value="">All</option>
+                  {REGIONS.map(r => (
+                    <option key={r.code} value={r.code}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+              <input
+                value={allSearch}
+                onChange={e => {
+                  const v = e.target.value
+                  setAllSearch(v)
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); loadAllListings(undefined, allSearch) } }}
+                onBlur={() => loadAllListings(undefined, allSearch)}
+                placeholder="Search titles..."
+                maxLength={120}
+                style={{flex:'1 1 220px', minWidth:200, background:'#0d1117', border:'1px solid #30363d', color:'#e6edf3', borderRadius:8, padding:'0.45rem 0.6rem'}}
+              />
+              <button className="secondary" onClick={() => loadAllListings(undefined, allSearch)}>Search</button>
             </div>
             <div className="listings">
               {allListings.map(l => (
