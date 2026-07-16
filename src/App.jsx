@@ -67,22 +67,21 @@ function App() {
         await hydrateProfile(sess)
       }
 
-      // Ruta inicial: enlace compartido (?aviso=ID) > ruta guardada > home.
-      // (Si falta el username, el render fuerza el onboarding sin importar la ruta.)
+      // Ruta inicial:
+      //  - enlace compartido (?aviso=ID) siempre abre esa ficha
+      //  - sin sesión, la portada es SIEMPRE la landing (explicación + capturas + login)
+      //  - con sesión, se restaura la última ruta guardada (o home por defecto)
       try {
         const shared = new URLSearchParams(window.location.search).get('aviso')
         if (shared) {
           setRoute({ name: 'detail', params: { id: Number(shared) } })
           window.history.replaceState({}, '', window.location.pathname)
+        } else if (!sess) {
+          setRoute({ name: 'auth', params: {} })
         } else {
           const stored = window.localStorage.getItem(ROUTE_STORAGE_KEY)
           const parsed = stored ? JSON.parse(stored) : null
-          if (parsed?.name && !TRANSIENT_ROUTES.has(parsed.name)) {
-            setRoute(parsed)
-          } else if (!sess) {
-            // Visitante nuevo sin sesión: mostrar la landing explicativa del proyecto
-            setRoute({ name: 'auth', params: {} })
-          }
+          if (parsed?.name && !TRANSIENT_ROUTES.has(parsed.name)) setRoute(parsed)
         }
       } catch { /* ruta por defecto */ }
 
