@@ -11,5 +11,7 @@ module.exports = {
   plugins: ['react-refresh'],
   rules: {
     'react-refresh/only-export-components': 'warn',
+    // Sin TypeScript ni PropTypes en este proyecto
+    'react/prop-types': 'off',
   },
 }
